@@ -139,7 +139,7 @@ def test_init_api_reads_token_settings_when_called(mock_garmin, _mock_terminal, 
 
     assert init_api(None, None) is None
 
-    mock_garmin.assert_called_once_with(is_cn=True)
+    mock_garmin.assert_called_once_with(is_cn=True, retry_attempts=3)
     mock_garmin.return_value.login.assert_called_once_with(token_dir)
 
 
@@ -153,5 +153,5 @@ def test_init_api_explicit_token_settings_win(mock_garmin, _mock_terminal, monke
 
     assert init_api(None, None, tokenstore=explicit, is_cn=False) is None
 
-    mock_garmin.assert_called_once_with(is_cn=False)
+    mock_garmin.assert_called_once_with(is_cn=False, retry_attempts=3)
     mock_garmin.return_value.login.assert_called_once_with(explicit)

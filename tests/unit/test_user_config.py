@@ -39,5 +39,5 @@ def test_unresolved_credentials_do_not_trigger_login(mock_garmin, _mock_terminal
     )
 
     assert result is None
-    mock_garmin.assert_called_once_with(is_cn=False)
+    mock_garmin.assert_called_once_with(is_cn=False, retry_attempts=3)
     mock_garmin.return_value.login.assert_called_once_with(get_token_path())

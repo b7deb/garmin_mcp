@@ -166,6 +166,34 @@ def _resolve_call_timeout() -> float:
     return value if value > 0 else 0.0
 
 
+# garminconnect retries failed *reads* (5xx and network errors, never 401/429/4xx
+# and never writes) with exponential backoff of 1-10 s. Its default is 3 retries.
+# Override with GARMIN_MCP_RETRY_ATTEMPTS; 0 disables retries.
+_DEFAULT_RETRY_ATTEMPTS = 3
+
+
+def _resolve_retry_attempts() -> int:
+    """Read GARMIN_MCP_RETRY_ATTEMPTS; fall back to the default on bad/absent input.
+
+    Must be a non-negative integer; 0 disables retries.
+    """
+    raw = os.getenv("GARMIN_MCP_RETRY_ATTEMPTS")
+    if raw is None or not raw.strip():
+        return _DEFAULT_RETRY_ATTEMPTS
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        value = -1
+    if value < 0:
+        print(
+            f"Invalid GARMIN_MCP_RETRY_ATTEMPTS {raw!r}; using default "
+            f"{_DEFAULT_RETRY_ATTEMPTS}.",
+            file=sys.stderr,
+        )
+        return _DEFAULT_RETRY_ATTEMPTS
+    return value
+
+
 class _GarminProxy:
     """Wraps the Garmin client to bound call duration and clarify runtime errors.
 
@@ -622,7 +650,7 @@ def init_api(email, password, tokenstore=None, tokenstore_base64=None, is_cn=Non
         # output written concurrently by the server's own thread (#255).
         # stderr is silenced for this thread only, for the same reason.
         with _suppress_stderr_in_this_thread():
-            garmin = Garmin(is_cn=is_cn)
+            garmin = Garmin(is_cn=is_cn, retry_attempts=_resolve_retry_attempts())
             garmin.login(tokenstore)
 
     except (FileNotFoundError, GarminConnectConnectionError, GarminConnectTooManyRequestsError, GarminConnectAuthenticationError) as token_error:
@@ -655,7 +683,12 @@ def init_api(email, password, tokenstore=None, tokenstore_base64=None, is_cn=Non
         )
         try:
             garmin = Garmin(
-                email=email, password=password, is_cn=is_cn, prompt_mfa=get_mfa, return_on_mfa=True
+                email=email,
+                password=password,
+                is_cn=is_cn,
+                prompt_mfa=get_mfa,
+                return_on_mfa=True,
+                retry_attempts=_resolve_retry_attempts(),
             )
             # sys.stdout is a _ThreadFilteredStream (installed in main());
             # any stray progress output from this call is already discarded
@@ -704,7 +737,7 @@ def init_api(email, password, tokenstore=None, tokenstore_base64=None, is_cn=Non
             # it fail). Log in again from the saved tokens to load them, which
             # also points token refreshes at the token directory.
             try:
-                garmin = Garmin(is_cn=is_cn)
+                garmin = Garmin(is_cn=is_cn, retry_attempts=_resolve_retry_attempts())
                 garmin.login(tokenstore)
             except Exception as err:
                 print(
