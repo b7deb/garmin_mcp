@@ -184,3 +184,43 @@ def test_proxy_translates_direct_http_client_writes():
     with pytest.raises(GarminConnectConnectionError, match="Re-run 'garmin-mcp-auth'"):
         proxy.client.put("connectapi", "/test", json={"x": 1}, api=True)
     http_client.put.assert_called_once_with("connectapi", "/test", json={"x": 1}, api=True)
+
+
+class TestResolveRetryAttempts:
+    """Tests for GARMIN_MCP_RETRY_ATTEMPTS parsing."""
+
+    def test_default_when_unset(self, monkeypatch):
+        from garmin_mcp import _DEFAULT_RETRY_ATTEMPTS, _resolve_retry_attempts
+
+        monkeypatch.delenv("GARMIN_MCP_RETRY_ATTEMPTS", raising=False)
+        assert _resolve_retry_attempts() == _DEFAULT_RETRY_ATTEMPTS == 3
+
+    def test_blank_uses_default(self, monkeypatch):
+        from garmin_mcp import _DEFAULT_RETRY_ATTEMPTS, _resolve_retry_attempts
+
+        monkeypatch.setenv("GARMIN_MCP_RETRY_ATTEMPTS", "  ")
+        assert _resolve_retry_attempts() == _DEFAULT_RETRY_ATTEMPTS
+
+    @pytest.mark.parametrize("raw, expected", [("0", 0), ("1", 1), (" 5 ", 5)])
+    def test_valid_values(self, monkeypatch, raw, expected):
+        from garmin_mcp import _resolve_retry_attempts
+
+        monkeypatch.setenv("GARMIN_MCP_RETRY_ATTEMPTS", raw)
+        assert _resolve_retry_attempts() == expected
+
+    @pytest.mark.parametrize("raw", ["-1", "abc", "1.5"])
+    def test_invalid_falls_back_to_default(self, monkeypatch, capsys, raw):
+        from garmin_mcp import _DEFAULT_RETRY_ATTEMPTS, _resolve_retry_attempts
+
+        monkeypatch.setenv("GARMIN_MCP_RETRY_ATTEMPTS", raw)
+        assert _resolve_retry_attempts() == _DEFAULT_RETRY_ATTEMPTS
+        assert "GARMIN_MCP_RETRY_ATTEMPTS" in capsys.readouterr().err
+
+    def test_client_is_built_with_the_setting(self, monkeypatch):
+        """Both token-login paths pass retry_attempts to Garmin()."""
+        import inspect
+
+        import garmin_mcp
+
+        source = inspect.getsource(garmin_mcp)
+        assert source.count("retry_attempts=_resolve_retry_attempts()") == 3
