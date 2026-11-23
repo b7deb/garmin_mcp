@@ -612,6 +612,10 @@
       "description": "Quick-add a food entry with macro values to the nutrition log"
     },
     {
+      "name": "move_calendar_item",
+      "description": "Move a calendar event or note to another day"
+    },
+    {
       "name": "push_workout_to_device",
       "description": "Send a workout from the workout library to a Garmin device"
     },

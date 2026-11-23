@@ -356,3 +356,70 @@ def test_get_calendar_notes_filters_and_sorts(client, tools):
 def test_get_calendar_notes_rejects_reversed_range(client, tools):
     out = _text(tools("get_calendar_notes", start_date="2027-06-20", end_date="2027-06-01"))
     assert "on or before" in out
+
+
+@pytest.mark.parametrize("item_type", ["event", "note", " Note "])
+def test_move_calendar_item(client, tools, item_type):
+    client.get_calendar_event.return_value = {"id": 7}
+    out = json.loads(
+        _text(tools("move_calendar_item", item_type=item_type, item_id=7, date="2027-06-21"))
+    )
+    assert out == {
+        "status": "moved",
+        "item_type": item_type.strip().lower(),
+        "item_id": 7,
+        "date": "2027-06-21",
+    }
+    client.move_calendar_item.assert_called_once_with(item_type.strip().lower(), 7, "2027-06-21")
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"item_type": "workout"}, "reschedule_workout"),
+        ({"item_type": ""}, "item_type"),
+        ({"item_id": 0}, "item_id"),
+        ({"date": "2027-13-01"}, "month"),
+    ],
+)
+def test_move_calendar_item_rejects_invalid_input(client, tools, kwargs, message):
+    args = {"item_type": "note", "item_id": 7, "date": "2027-06-21", **kwargs}
+    out = _text(tools("move_calendar_item", **args))
+    assert out.startswith("Error:") and message in out
+    client.move_calendar_item.assert_not_called()
+
+
+def test_move_event_checks_it_exists_first(client, tools):
+    from garminconnect import GarminConnectNotFoundError
+
+    client.get_calendar_event.side_effect = GarminConnectNotFoundError("API Error 404")
+    out = _text(tools("move_calendar_item", item_type="event", item_id=7, date="2027-06-21"))
+    assert "not found" in out
+    client.move_calendar_item.assert_not_called()
+
+
+def test_move_note_skips_the_event_lookup(client, tools):
+    tools("move_calendar_item", item_type="note", item_id=7, date="2027-06-21")
+    client.get_calendar_event.assert_not_called()
+
+
+def test_move_calendar_item_4xx_is_not_committed(client, tools):
+    from garminconnect import GarminConnectConnectionError
+
+    client.move_calendar_item.side_effect = GarminConnectConnectionError(
+        "API Error 403 - forbidden"
+    )
+    out = json.loads(
+        _text(tools("move_calendar_item", item_type="note", item_id=7, date="2027-06-21"))
+    )
+    assert out["write_committed"] is False
+
+
+def test_move_calendar_item_5xx_is_unknown_commit_state(client, tools):
+    from garminconnect import GarminConnectConnectionError
+
+    client.move_calendar_item.side_effect = GarminConnectConnectionError("API Error 502 - x")
+    out = json.loads(
+        _text(tools("move_calendar_item", item_type="note", item_id=7, date="2027-06-21"))
+    )
+    assert out["write_committed"] == "unknown"
