@@ -222,7 +222,7 @@ class _GarminProxy:
                     if isinstance(exc, exc_type):
                         prefix, hint = messages
                         break
-                # garminconnect 0.3.2 wraps every API HTTP failure as a
+                # garminconnect wraps most API HTTP failures as a
                 # ConnectionError, with status only in its message.
                 status, _ = _upstream(exc)
                 if status == 401:

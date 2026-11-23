@@ -19,6 +19,7 @@ ADDITIVE_TOOLS = frozenset(
         "add_hydration_data",
         "add_weigh_in",
         "add_weigh_in_with_timestamps",
+        "create_calendar_event",
         "create_custom_food",
         "create_manual_activity",
         "create_run_interval_workout",
@@ -49,6 +50,7 @@ ADDITIVE_TOOLS = frozenset(
 DESTRUCTIVE_TOOLS = frozenset(
     {
         "delete_activity",
+        "delete_calendar_event",
         "delete_course",
         "delete_custom_food",
         "delete_food_log",
@@ -71,6 +73,7 @@ DESTRUCTIVE_TOOLS = frozenset(
         "set_perceived_effort",
         "unschedule_workout",
         "unschedule_workouts",
+        "update_calendar_event",
         "update_custom_food",
     }
 )
@@ -80,7 +83,7 @@ DESTRUCTIVE_TOOLS = frozenset(
 # arguments. Batch scheduling can also upload an inline workout, so it is
 # intentionally excluded even though its existing-workout path is guarded.
 IDEMPOTENT_TOOLS = frozenset(
-    {"reschedule_workout", "schedule_week", "schedule_workout"}
+    {"reschedule_workout", "schedule_week", "schedule_workout", "update_calendar_event"}
 )
 
 
