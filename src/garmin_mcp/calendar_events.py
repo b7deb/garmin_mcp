@@ -428,7 +428,8 @@ def register_tools(app):
 
         Changes only the date; title, text and other fields stay. Repeating
         the same call is safe. For scheduled workouts use reschedule_workout
-        instead.
+        instead. Moving an event you subscribed to, or the race an active
+        training plan targets, may be refused by Garmin or may change the plan.
 
         Args:
             item_type: "event" (a race or event) or "note"
@@ -449,6 +450,9 @@ def register_tools(app):
                 day = _validate_date(date, "date").isoformat()
             except ValueError as e:
                 return f"Error: {e}"
+
+            if kind == EVENT_ITEM_TYPE and not _get_event(iid):
+                return f"Error: event {iid} not found."
 
             tracker.sending()
             garmin_client.move_calendar_item(kind, iid, day)

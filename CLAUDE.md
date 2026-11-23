@@ -68,7 +68,7 @@ src/garmin_mcp/
 └── write_errors.py             # Structured error results for write tools (WriteTracker)
 
 tests/
-├── unit/                       # 450 tests, no Garmin API (helpers, validation, config, auth)
+├── unit/                       # 453 tests, no Garmin API (helpers, validation, config, auth)
 ├── integration/                # 880 tests with mocked Garmin API
 │   ├── test_activity_analysis_tools.py
 │   ├── test_activity_management_tools.py
@@ -236,7 +236,7 @@ All tools should:
 
 The project has comprehensive test coverage:
 
-**450 unit tests** and **880 integration tests** - Test helpers and all MCP tools with a mocked Garmin API
+**453 unit tests** and **880 integration tests** - Test helpers and all MCP tools with a mocked Garmin API
 
 ```bash
 # Run all unit tests

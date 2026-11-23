@@ -156,6 +156,7 @@ WORKOUTS_TOOLS = CORE_TOOLS | frozenset(
         "schedule_workout",
         "schedule_workouts",
         "unschedule_workout",
+        "reschedule_workout",
         "unschedule_workouts",
         "upload_workout",
         "upload_workouts",
