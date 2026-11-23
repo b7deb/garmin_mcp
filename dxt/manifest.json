@@ -96,6 +96,10 @@
       "description": "Add a race or event to the Garmin Connect calendar"
     },
     {
+      "name": "create_calendar_note",
+      "description": "Add a note to a day on the Garmin Connect calendar"
+    },
+    {
       "name": "create_custom_food",
       "description": "Create a custom food in the user's Garmin nutrition library"
     },
@@ -130,6 +134,10 @@
     {
       "name": "delete_calendar_event",
       "description": "Delete an event from the Garmin Connect calendar"
+    },
+    {
+      "name": "delete_calendar_note",
+      "description": "Delete a note from the Garmin Connect calendar"
     },
     {
       "name": "delete_course",
@@ -270,6 +278,10 @@
     {
       "name": "get_calendar_events",
       "description": "Get races and events on the Garmin Connect calendar between two dates"
+    },
+    {
+      "name": "get_calendar_notes",
+      "description": "Get notes on the Garmin Connect calendar between two dates"
     },
     {
       "name": "get_course_details",
@@ -686,6 +698,10 @@
     {
       "name": "update_calendar_event",
       "description": "Change fields of an event on the Garmin Connect calendar"
+    },
+    {
+      "name": "update_calendar_note",
+      "description": "Replace the date, title and text of a calendar note"
     },
     {
       "name": "update_custom_food",
