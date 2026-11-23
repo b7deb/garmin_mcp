@@ -2,9 +2,15 @@
 Calendar event (race) functions for Garmin Connect MCP Server
 """
 import json
+import math
 import re
 from datetime import date
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, List, Optional
+
+from garminconnect import GarminConnectNotFoundError
+
+from garmin_mcp.write_errors import WriteTracker
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -34,7 +40,7 @@ def configure(client):
 
 
 def _validate_date(value: str, field: str = "date") -> date:
-    if not _DATE_RE.match(value):
+    if not _DATE_RE.fullmatch(value):
         raise ValueError(f"Invalid {field} '{value}': expected YYYY-MM-DD")
     return date.fromisoformat(value)
 
@@ -125,6 +131,7 @@ def _curate_event(
     """Curate one raw calendar event into a compact shape."""
     event_time = _as_dict(item.get("eventTimeLocal"))
     return {
+        "event_id": item.get("id"),
         "title": item.get("title"),
         "date": item.get("date"),
         "is_race": bool(item.get("isRace")),
@@ -138,6 +145,154 @@ def _curate_event(
         "url": item.get("url"),
         "event_uuid": item.get("shareableEventUuid"),
     }
+
+
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _build_event_fields(
+    *,
+    name: Optional[str],
+    event_date: Optional[str],
+    event_type: Optional[str],
+    is_race: Optional[bool],
+    distance_km: Optional[float],
+    start_time: Optional[str],
+    time_zone: Optional[str],
+    location: Optional[str],
+    url: Optional[str],
+    notes: Optional[str],
+    goal_time_seconds: Optional[int],
+) -> Dict[str, Any]:
+    """Validate the given arguments and map them onto Garmin's event fields.
+
+    Only arguments that are not None are returned, so the result can be
+    merged into an existing event (update) or used as a new one (create).
+    Raises ValueError with a user-facing message on invalid input.
+    """
+    fields: Dict[str, Any] = {}
+    if name is not None:
+        if not name.strip():
+            raise ValueError("name must not be empty.")
+        fields["eventName"] = name.strip()
+    if event_date is not None:
+        fields["date"] = _validate_date(event_date, "date").isoformat()
+    if event_type is not None:
+        if not event_type.strip():
+            raise ValueError("event_type must not be empty.")
+        fields["eventType"] = event_type.strip()
+    if is_race is not None:
+        fields["race"] = bool(is_race)
+    if distance_km is not None:
+        if not math.isfinite(distance_km) or distance_km <= 0:
+            raise ValueError("distance_km must be a finite number greater than 0.")
+        fields["completionTarget"] = {
+            "value": float(distance_km),
+            "unit": "kilometer",
+            "unitType": "distance",
+        }
+    if start_time is not None:
+        if not _TIME_RE.fullmatch(start_time):
+            raise ValueError("start_time must be in HH:MM (24-hour) format.")
+        fields["_start_time"] = start_time
+    if time_zone is not None:
+        zone = time_zone.strip()
+        try:
+            ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(
+                f"Unknown time_zone {time_zone!r}; use an IANA name such as Europe/Paris."
+            )
+        fields["_time_zone"] = zone
+    if location is not None:
+        fields["location"] = location.strip()
+    if url is not None:
+        fields["url"] = url.strip()
+    if notes is not None:
+        fields["note"] = notes
+    if goal_time_seconds is not None:
+        if goal_time_seconds <= 0:
+            raise ValueError("goal_time_seconds must be greater than 0.")
+        fields["_goal_time_seconds"] = int(goal_time_seconds)
+    return fields
+
+
+def _apply_time(event: Dict[str, Any], fields: Dict[str, Any]) -> None:
+    """Resolve start time and zone from ``fields`` and the event's current values.
+
+    Either may be omitted when the event already has it. Raises ValueError
+    when a start time ends up without a zone (or the reverse).
+    """
+    start = fields.pop("_start_time", None)
+    zone = fields.pop("_time_zone", None)
+    if start is None and zone is None:
+        return
+    current = _as_dict(event.get("eventTimeLocal"))
+    start = start or current.get("startTimeHhMm")
+    zone = zone or current.get("timeZoneId")
+    if not start or not zone:
+        raise ValueError(
+            "start_time and time_zone (IANA name, e.g. Europe/Paris) are needed together."
+        )
+    event["eventTimeLocal"] = {
+        **current,
+        "startTimeHhMm": start,
+        "timeZoneId": zone,
+    }
+
+
+def _apply_goal_time(event: Dict[str, Any], fields: Dict[str, Any]) -> None:
+    """Move the goal time from ``fields`` into the event's customization."""
+    seconds = fields.pop("_goal_time_seconds", None)
+    if seconds is None:
+        return
+    customization = dict(_as_dict(event.get("eventCustomization")))
+    customization["customGoal"] = {
+        "value": float(seconds),
+        "unit": "second",
+        "unitType": "time",
+    }
+    event["eventCustomization"] = customization
+
+
+def _parse_event_id(event_id: Any) -> int:
+    try:
+        value = int(event_id)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid event_id: {event_id}")
+    if value <= 0:
+        raise ValueError(f"Invalid event_id: {event_id}")
+    return value
+
+
+def _get_event(event_id: int) -> Dict[str, Any]:
+    """Fetch one event; returns {} when it does not exist."""
+    try:
+        return _as_dict(garmin_client.get_calendar_event(event_id))
+    except GarminConnectNotFoundError:
+        return {}
+
+
+def _event_summary(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact view of a raw event (from the detail endpoint)."""
+    return _curate_event(
+        {
+            "id": event.get("id"),
+            "title": event.get("eventName"),
+            "date": event.get("date"),
+            "isRace": event.get("race"),
+            "primaryEvent": _as_dict(event.get("eventCustomization")).get(
+                "isPrimaryEvent"
+            ),
+            "subscribed": event.get("subscribed"),
+            "completionTarget": event.get("completionTarget"),
+            "eventTimeLocal": event.get("eventTimeLocal"),
+            "location": event.get("location"),
+            "url": event.get("url"),
+            "shareableEventUuid": event.get("shareableEventUuid"),
+        },
+        event,
+    )
 
 
 def register_tools(app):
@@ -203,5 +358,214 @@ def register_tools(app):
             return str(e)
         except Exception as e:
             return f"Error retrieving calendar events: {str(e)}"
+
+    @app.tool()
+    async def create_calendar_event(
+        name: str,
+        date: str,
+        distance_km: Optional[float] = None,
+        event_type: str = "running",
+        is_race: bool = True,
+        start_time: Optional[str] = None,
+        time_zone: Optional[str] = None,
+        location: Optional[str] = None,
+        url: Optional[str] = None,
+        notes: Optional[str] = None,
+        goal_time_seconds: Optional[int] = None,
+    ) -> str:
+        """Add a race or event to the Garmin Connect calendar
+
+        Creates a calendar entry such as a race. It then shows up in
+        get_calendar_events (use that to find its event_id). Not idempotent:
+        calling twice creates two events. If a write fails with
+        write_committed="unknown", check get_calendar_events before retrying.
+
+        Args:
+            name: Event name
+            date: Event date in YYYY-MM-DD format
+            distance_km: Target distance in kilometers
+            event_type: Garmin event type key (default "running")
+            is_race: Mark the entry as a race (default true)
+            start_time: Local start time in HH:MM (requires time_zone)
+            time_zone: IANA time zone for start_time, e.g. Europe/Paris
+            location: Free-text location, e.g. a city
+            url: Event web page
+            notes: Free-text notes
+            goal_time_seconds: Your goal finishing time in seconds
+        """
+        tracker = WriteTracker("create_calendar_event", "Error creating calendar event")
+        try:
+            try:
+                fields = _build_event_fields(
+                    name=name,
+                    event_date=date,
+                    event_type=event_type,
+                    is_race=is_race,
+                    distance_km=distance_km,
+                    start_time=start_time,
+                    time_zone=time_zone,
+                    location=location,
+                    url=url,
+                    notes=notes,
+                    goal_time_seconds=goal_time_seconds,
+                )
+            except ValueError as e:
+                return f"Error: {e}"
+            event: Dict[str, Any] = dict(fields)
+            try:
+                _apply_time(event, event)
+            except ValueError as e:
+                return f"Error: {e}"
+            _apply_goal_time(event, event)
+
+            tracker.sending()
+            result = garmin_client.create_calendar_event(event)
+            tracker.committed()
+
+            return json.dumps(
+                {"status": "created", "event": result}, indent=2, ensure_ascii=False
+            )
+        except Exception as e:
+            return tracker.error(e)
+
+    @app.tool()
+    async def update_calendar_event(
+        event_id: int,
+        name: Optional[str] = None,
+        date: Optional[str] = None,
+        distance_km: Optional[float] = None,
+        event_type: Optional[str] = None,
+        is_race: Optional[bool] = None,
+        start_time: Optional[str] = None,
+        time_zone: Optional[str] = None,
+        location: Optional[str] = None,
+        url: Optional[str] = None,
+        notes: Optional[str] = None,
+        goal_time_seconds: Optional[int] = None,
+    ) -> str:
+        """Change fields of an event on the Garmin Connect calendar
+
+        Only the arguments you pass are changed; everything else keeps its
+        value. Get event_id from get_calendar_events. Repeating the same
+        call is safe. Pass "" to clear notes, location or url. Distance,
+        start time and goal time can be changed but not cleared. start_time
+        and time_zone may be passed on their own; the event's current value
+        is used for the other.
+
+        Args:
+            event_id: Event id from get_calendar_events ("event_id")
+            name: New event name
+            date: New date in YYYY-MM-DD format
+            distance_km: New target distance in kilometers
+            event_type: New Garmin event type key
+            is_race: Whether the entry is a race
+            start_time: New local start time in HH:MM
+            time_zone: IANA time zone, e.g. Europe/Paris
+            location: New free-text location
+            url: New event web page
+            notes: New free-text notes
+            goal_time_seconds: New goal finishing time in seconds
+        """
+        tracker = WriteTracker("update_calendar_event", "Error updating calendar event")
+        try:
+            try:
+                eid = _parse_event_id(event_id)
+                fields = _build_event_fields(
+                    name=name,
+                    event_date=date,
+                    event_type=event_type,
+                    is_race=is_race,
+                    distance_km=distance_km,
+                    start_time=start_time,
+                    time_zone=time_zone,
+                    location=location,
+                    url=url,
+                    notes=notes,
+                    goal_time_seconds=goal_time_seconds,
+                )
+            except ValueError as e:
+                return f"Error: {e}"
+            if not fields:
+                return "Error: pass at least one field to change."
+
+            # Garmin's PUT replaces the whole event, so merge into the current one.
+            event = dict(_get_event(eid))
+            if not event:
+                return f"Error: event {eid} not found."
+            try:
+                _apply_time(event, fields)
+            except ValueError as e:
+                return f"Error: {e}"
+            _apply_goal_time(event, fields)
+            if "completionTarget" in fields:
+                fields["completionTarget"] = {
+                    **_as_dict(event.get("completionTarget")),
+                    **fields["completionTarget"],
+                }
+            event.update(fields)
+
+            tracker.sending()
+            response = garmin_client.update_calendar_event(eid, event)
+            tracker.committed()
+
+            saved = response if isinstance(response, dict) and response else event
+            return json.dumps(
+                {"status": "updated", "event": _event_summary(saved)},
+                indent=2,
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return tracker.error(e)
+
+    @app.tool()
+    async def delete_calendar_event(event_id: int, confirm: bool = False) -> str:
+        """Delete an event from the Garmin Connect calendar
+
+        This cannot be undone. Call once with confirm=false (the default) to
+        preview the event, then call again with confirm=true to delete it.
+
+        Args:
+            event_id: Event id from get_calendar_events ("event_id")
+            confirm: Must be true to actually delete. Default false returns a preview.
+        """
+        tracker = WriteTracker("delete_calendar_event", "Error deleting calendar event")
+        try:
+            try:
+                eid = _parse_event_id(event_id)
+            except ValueError as e:
+                return f"Error: {e}"
+
+            event = _get_event(eid)
+            if not event:
+                return f"Error: event {eid} not found."
+            summary = _event_summary(event)
+            if not confirm:
+                return json.dumps(
+                    {
+                        "status": "needs_confirmation",
+                        "event": summary,
+                        "message": (
+                            "This permanently deletes the event from the Garmin "
+                            "Connect calendar. Call again with confirm=true to proceed."
+                        ),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            tracker.sending()
+            garmin_client.delete_calendar_event(eid)
+            tracker.committed()
+            return json.dumps(
+                {
+                    "status": "deleted",
+                    "event": summary,
+                    "message": f"Event {eid} deleted.",
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return tracker.error(e)
 
     return app

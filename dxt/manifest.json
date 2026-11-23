@@ -92,6 +92,10 @@
       "description": "Get total count of activities in the user's Garmin account"
     },
     {
+      "name": "create_calendar_event",
+      "description": "Add a race or event to the Garmin Connect calendar"
+    },
+    {
       "name": "create_custom_food",
       "description": "Create a custom food in the user's Garmin nutrition library"
     },
@@ -122,6 +126,10 @@
     {
       "name": "delete_activity",
       "description": "Permanently delete an activity from Garmin Connect."
+    },
+    {
+      "name": "delete_calendar_event",
+      "description": "Delete an event from the Garmin Connect calendar"
     },
     {
       "name": "delete_course",
@@ -676,6 +684,10 @@
       "description": "Remove multiple scheduled workouts from the Garmin Connect calendar"
     },
     {
+      "name": "update_calendar_event",
+      "description": "Change fields of an event on the Garmin Connect calendar"
+    },
+    {
       "name": "update_custom_food",
       "description": "Update an existing custom food in the user's Garmin nutrition library"
     },
@@ -704,7 +716,7 @@
       "linux"
     ],
     "runtimes": {
-      "python": ">=3.10"
+      "python": ">=3.12"
     }
   }
 }
