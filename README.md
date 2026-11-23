@@ -115,7 +115,7 @@ If you need any of these endpoints, please [open an issue](https://github.com/Ta
 
 ## Tool Filtering
 
-This server registers 164 tools by default, which is a lot of context for an
+This server registers 165 tools by default, which is a lot of context for an
 LLM to carry in every session. You can expose only the tools you need with
 three optional environment variables:
 
@@ -137,7 +137,7 @@ stops the server at startup with the list of known profiles.
 | `minimal` | 20 | Recent activities with splits, daily stats, sleep, HRV, stress, body battery, training readiness and status |
 | `health` | 53 | Every health_wellness tool plus weight, body composition, blood pressure, hydration, women's health, fitness age, HRV and respiration trends |
 | `activities` | 41 | Activity list, detail, splits and edits; FIT analysis and power curve; gear; courses |
-| `workouts` | 33 | Workout library, upload, schedule and delete; the high-level builders; the calendar |
+| `workouts` | 34 | Workout library, upload, schedule and delete; the high-level builders; the calendar |
 | `training` | 38 | Training status, load, effect, VO2max, FTP, lactate threshold, endurance and hill scores, readiness, recovery time, personal records, race predictions, goals, badges |
 | `nutrition` | 23 | Food log, custom foods, daily nutrition settings, hydration, energy balance |
 

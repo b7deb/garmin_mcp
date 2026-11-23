@@ -62,6 +62,7 @@ DESTRUCTIVE_TOOLS = frozenset(
         "download_activity_file",
         "download_course_gpx",
         "download_workout",
+        "move_calendar_item",
         "remove_gear_from_activity",
         "reschedule_workout",
         "set_activity_description",
@@ -86,7 +87,7 @@ DESTRUCTIVE_TOOLS = frozenset(
 # arguments. Batch scheduling can also upload an inline workout, so it is
 # intentionally excluded even though its existing-workout path is guarded.
 IDEMPOTENT_TOOLS = frozenset(
-    {"reschedule_workout", "schedule_week", "schedule_workout", "update_calendar_event", "update_calendar_note"}
+    {"move_calendar_item", "reschedule_workout", "schedule_week", "schedule_workout", "update_calendar_event", "update_calendar_note"}
 )
 
 

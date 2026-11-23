@@ -23,6 +23,10 @@ garmin_client = None
 EVENT_ITEM_TYPE = "event"
 NOTE_ITEM_TYPE = "note"
 
+# Calendar item types move_calendar_item supports. Verified live: both move with
+# just the new date. Scheduled workouts have their own reschedule_workout tool.
+MOVABLE_ITEM_TYPES = (EVENT_ITEM_TYPE, NOTE_ITEM_TYPE)
+
 # Garmin's calendar-service sends completionTarget.unit as one of these
 # strings (Connect's custom-event picker: meter, kilometer, yard, mile).
 # Always report meters; unknown units become None.
@@ -417,6 +421,49 @@ def register_tools(app):
             return str(e)
         except Exception as e:
             return f"Error retrieving calendar notes: {str(e)}"
+
+    @app.tool()
+    async def move_calendar_item(item_type: str, item_id: int, date: str) -> str:
+        """Move a calendar event or note to another day
+
+        Changes only the date; title, text and other fields stay. Repeating
+        the same call is safe. For scheduled workouts use reschedule_workout
+        instead.
+
+        Args:
+            item_type: "event" (a race or event) or "note"
+            item_id: event_id from get_calendar_events, or note_id from
+                get_calendar_notes / create_calendar_note
+            date: New day in YYYY-MM-DD format
+        """
+        tracker = WriteTracker("move_calendar_item", "Error moving calendar item")
+        try:
+            try:
+                kind = (item_type or "").strip().lower()
+                if kind not in MOVABLE_ITEM_TYPES:
+                    raise ValueError(
+                        f"item_type must be one of {', '.join(MOVABLE_ITEM_TYPES)}; "
+                        "use reschedule_workout for scheduled workouts."
+                    )
+                iid = _parse_event_id(item_id, "item_id")
+                day = _validate_date(date, "date").isoformat()
+            except ValueError as e:
+                return f"Error: {e}"
+
+            tracker.sending()
+            garmin_client.move_calendar_item(kind, iid, day)
+            tracker.committed()
+            return json.dumps(
+                {
+                    "status": "moved",
+                    "item_type": kind,
+                    "item_id": iid,
+                    "date": day,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return tracker.error(e)
 
     @app.tool()
     async def create_calendar_event(
