@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a Model Context Protocol (MCP) server that connects to Garmin Connect and exposes fitness and health data to Claude and other MCP-compatible clients. The server provides 122 tools organized into 15 functional modules.
+This is a Model Context Protocol (MCP) server that connects to Garmin Connect and exposes fitness and health data to Claude and other MCP-compatible clients. The server provides 164 tools organized into 16 functional modules.
 
 ## Critical: Garmin API Integration
 
@@ -48,33 +48,42 @@ src/garmin_mcp/
 ├── auth_cli.py                 # Pre-authentication CLI (garmin-mcp-auth)
 ├── challenges.py               # Challenges and badges
 ├── courses.py                  # Course management
+├── calendar_events.py          # Calendar events (races) and notes
 ├── data_management.py          # Data upload/download operations
 ├── devices.py                  # Device information
 ├── gear_management.py          # Gear tracking
 ├── health_wellness.py          # Health metrics (steps, HR, sleep, etc.)
+├── http_auth.py                # Bearer-token auth for the HTTP transport
 ├── nutrition.py                # Nutrition and food logging
 ├── token_utils.py              # OAuth token management utilities
+├── tool_annotations.py         # Read-only/additive/destructive hints per tool
+├── tool_profiles.py            # Named tool subsets (profiles)
 ├── training.py                 # Training and performance metrics
 ├── user_profile.py             # User account information
 ├── weight_management.py        # Weight and body composition
 ├── womens_health.py            # Women's health tracking
 ├── workout_builders.py         # Programmatic workout creation
 ├── workout_templates.py        # Workout template helpers
-└── workouts.py                 # Workout management
+├── workouts.py                 # Workout management
+└── write_errors.py             # Structured error results for write tools (WriteTracker)
 
 tests/
-├── integration/                # 224 tests with mocked Garmin API
+├── unit/                       # 433 tests, no Garmin API (helpers, validation, config, auth)
+├── integration/                # 880 tests with mocked Garmin API
 │   ├── test_activity_analysis_tools.py
 │   ├── test_activity_management_tools.py
+│   ├── test_calendar_events_tools.py
 │   ├── test_challenges_tools.py
+│   ├── test_courses_tools.py
 │   ├── test_health_wellness_tools.py
 │   ├── test_nutrition_tools.py
 │   ├── test_other_modules_tools.py
 │   ├── test_training_tools.py
 │   ├── test_workout_builders_tools.py
 │   └── test_workouts_tools.py
-└── e2e/                        # 9 end-to-end tests (require real credentials)
-    └── test_server_e2e.py
+└── e2e/                        # 16 end-to-end tests (require real credentials)
+    ├── test_server_e2e.py
+    └── test_*_live.py          # live write-path checks against a real account
 ```
 
 ## Architecture
@@ -170,9 +179,12 @@ All tools should:
 
 The project has comprehensive test coverage:
 
-**224 integration tests** - Test all MCP tools with mocked Garmin API
+**433 unit tests** and **880 integration tests** - Test helpers and all MCP tools with a mocked Garmin API
 
 ```bash
+# Run all unit tests
+uv run pytest tests/unit -q
+
 # Run all integration tests
 uv run pytest tests/integration/ -v
 
@@ -180,7 +192,7 @@ uv run pytest tests/integration/ -v
 uv run pytest tests/integration/test_health_wellness_tools.py -v
 ```
 
-**9 end-to-end tests** - Test with real MCP server and Garmin API (requires credentials)
+**16 end-to-end tests** - Test with real MCP server and Garmin API (requires credentials)
 
 ```bash
 uv run pytest tests/e2e/ -m e2e -v
@@ -286,7 +298,7 @@ Check logs at:
 ## Key Dependencies
 
 - `garminconnect==0.3.20` - Garmin Connect API wrapper
-- `mcp>=1.23.0` - Model Context Protocol SDK
+- `mcp>=1.28.1,<2` - Model Context Protocol SDK (2.x renamed FastMCP; capped until ported)
 - `fitparse>=1.2.0` - FIT file parsing for activity analysis
 - `python-dotenv==1.2.2` - Environment variable management
 - `requests==2.33.0` - HTTP client
