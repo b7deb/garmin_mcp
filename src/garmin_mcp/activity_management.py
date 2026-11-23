@@ -557,9 +557,7 @@ def register_tools(app):
             activity_id = int(activity_id)
             event_type = event_type.strip()
 
-            event_types = (
-                garmin_client.connectapi("/activity-service/activity/eventTypes") or []
-            )
+            event_types = garmin_client.get_activity_event_types() or []
             match = next(
                 (e for e in event_types if e.get("typeKey") == event_type), None
             )

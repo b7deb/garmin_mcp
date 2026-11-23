@@ -285,7 +285,7 @@ async def test_set_activity_event_type_tool(
 ):
     """Test set_activity_event_type resolves the key and PUTs eventTypeDTO"""
     mock_garmin_client.garmin_connect_activity = "/activity-service/activity"
-    mock_garmin_client.connectapi.return_value = [
+    mock_garmin_client.get_activity_event_types.return_value = [
         {"typeId": 1, "typeKey": "race", "sortOrder": 5},
         {"typeId": 4, "typeKey": "training", "sortOrder": 7},
     ]
@@ -314,7 +314,7 @@ async def test_set_activity_event_type_rejects_unknown(
     app_with_activity_management, mock_garmin_client
 ):
     """Test set_activity_event_type rejects an unknown event type"""
-    mock_garmin_client.connectapi.return_value = [
+    mock_garmin_client.get_activity_event_types.return_value = [
         {"typeId": 1, "typeKey": "race", "sortOrder": 5},
     ]
 
