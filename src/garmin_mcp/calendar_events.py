@@ -21,6 +21,7 @@ garmin_client = None
 # Races the user added or subscribed to arrive as "event"; workouts, weigh-ins
 # and badges share the same feed and are ignored here.
 EVENT_ITEM_TYPE = "event"
+NOTE_ITEM_TYPE = "note"
 
 # Garmin's calendar-service sends completionTarget.unit as one of these
 # strings (Connect's custom-event picker: meter, kilometer, yard, mile).
@@ -255,14 +256,20 @@ def _apply_goal_time(event: Dict[str, Any], fields: Dict[str, Any]) -> None:
     event["eventCustomization"] = customization
 
 
-def _parse_event_id(event_id: Any) -> int:
+def _parse_event_id(event_id: Any, field: str = "event_id") -> int:
     try:
         value = int(event_id)
     except (TypeError, ValueError):
-        raise ValueError(f"Invalid event_id: {event_id}")
+        raise ValueError(f"Invalid {field}: {event_id}")
     if value <= 0:
-        raise ValueError(f"Invalid event_id: {event_id}")
+        raise ValueError(f"Invalid {field}: {event_id}")
     return value
+
+
+def _validate_note_name(name: str) -> str:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("name must not be empty.")
+    return name.strip()
 
 
 def _get_event(event_id: int) -> Dict[str, Any]:
@@ -358,6 +365,58 @@ def register_tools(app):
             return str(e)
         except Exception as e:
             return f"Error retrieving calendar events: {str(e)}"
+
+    @app.tool()
+    async def get_calendar_notes(start_date: str, end_date: str) -> str:
+        """Get notes on the Garmin Connect calendar between two dates
+
+        Returns each note's id, title and date. Garmin's calendar feed does
+        not include the note text, so content is not returned. Use the ids
+        with update_calendar_note and delete_calendar_note.
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+        """
+        try:
+            start = _validate_date(start_date, "start_date")
+            end = _validate_date(end_date, "end_date")
+            if start > end:
+                return "start_date must be on or before end_date."
+
+            notes: List[Dict[str, Any]] = []
+            seen = set()
+            for year, month in _month_range(start, end):
+                for item in _fetch_month(year, month):
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("itemType") != NOTE_ITEM_TYPE:
+                        continue
+                    day = item.get("date")
+                    if not isinstance(day, str) or not start_date <= day <= end_date:
+                        continue
+                    note_id = item.get("id")
+                    if note_id in seen:
+                        continue
+                    seen.add(note_id)
+                    notes.append(
+                        {"note_id": note_id, "title": item.get("title"), "date": day}
+                    )
+
+            notes.sort(key=lambda n: (n["date"], n["title"] or ""))
+            return json.dumps(
+                {
+                    "count": len(notes),
+                    "date_range": {"start": start_date, "end": end_date},
+                    "notes": notes,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error retrieving calendar notes: {str(e)}"
 
     @app.tool()
     async def create_calendar_event(
@@ -564,6 +623,104 @@ def register_tools(app):
                 },
                 indent=2,
                 ensure_ascii=False,
+            )
+        except Exception as e:
+            return tracker.error(e)
+
+    @app.tool()
+    async def create_calendar_note(
+        date: str, name: str, content: str = ""
+    ) -> str:
+        """Add a note to a day on the Garmin Connect calendar
+
+        Not idempotent: calling twice creates two notes. The result contains
+        the note's id, which update_calendar_note and delete_calendar_note
+        need (get_calendar_notes lists ids of existing notes). If a write fails with write_committed="unknown", check the
+        calendar before retrying.
+
+        Args:
+            date: Calendar day in YYYY-MM-DD format
+            name: Note title
+            content: Note text (default empty)
+        """
+        tracker = WriteTracker("create_calendar_note", "Error creating calendar note")
+        try:
+            try:
+                day = _validate_date(date, "date").isoformat()
+                title = _validate_note_name(name)
+            except ValueError as e:
+                return f"Error: {e}"
+
+            tracker.sending()
+            result = garmin_client.create_calendar_note(day, title, content or "")
+            tracker.committed()
+            return json.dumps(
+                {"status": "created", "note": result}, indent=2, ensure_ascii=False
+            )
+        except Exception as e:
+            return tracker.error(e)
+
+    @app.tool()
+    async def update_calendar_note(
+        note_id: int, date: str, name: str, content: str = ""
+    ) -> str:
+        """Replace the date, title and text of a calendar note
+
+        Garmin replaces the whole note, so pass every field, not just the
+        ones that change. Repeating the same call is safe.
+
+        Args:
+            note_id: Note id from create_calendar_note or get_calendar_notes
+            date: Calendar day in YYYY-MM-DD format
+            name: Note title
+            content: Note text (empty string clears it)
+        """
+        tracker = WriteTracker("update_calendar_note", "Error updating calendar note")
+        try:
+            try:
+                nid = _parse_event_id(note_id, "note_id")
+                day = _validate_date(date, "date").isoformat()
+                title = _validate_note_name(name)
+            except ValueError as e:
+                return f"Error: {e}"
+
+            tracker.sending()
+            result = garmin_client.update_calendar_note(nid, day, title, content or "")
+            tracker.committed()
+            return json.dumps(
+                {
+                    "status": "updated",
+                    "note": result
+                    or {"id": nid, "noteName": title, "content": content or "", "date": day},
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return tracker.error(e)
+
+    @app.tool()
+    async def delete_calendar_note(note_id: int) -> str:
+        """Delete a note from the Garmin Connect calendar
+
+        This cannot be undone.
+
+        Args:
+            note_id: Note id from create_calendar_note or get_calendar_notes
+        """
+        tracker = WriteTracker("delete_calendar_note", "Error deleting calendar note")
+        try:
+            try:
+                nid = _parse_event_id(note_id, "note_id")
+            except ValueError as e:
+                return f"Error: {e}"
+
+            tracker.sending()
+            garmin_client.delete_calendar_note(nid)
+            tracker.committed()
+            return json.dumps(
+                {"status": "deleted", "note_id": nid, "message": f"Note {nid} deleted."},
+                indent=2,
             )
         except Exception as e:
             return tracker.error(e)

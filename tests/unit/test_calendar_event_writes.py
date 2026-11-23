@@ -279,3 +279,80 @@ def test_delete_failure_after_send_is_unknown_on_5xx(client, tools):
     )
     out = json.loads(_text(tools("delete_calendar_event", event_id=42, confirm=True)))
     assert out["write_committed"] == "unknown"
+
+
+def test_create_note_passes_validated_fields(client, tools):
+    client.create_calendar_note.return_value = {"id": 9, "noteName": "Rest day"}
+    out = json.loads(
+        _text(tools("create_calendar_note", date="2027-01-05", name=" Rest day ", content="easy"))
+    )
+    assert out["status"] == "created"
+    assert out["note"]["id"] == 9
+    client.create_calendar_note.assert_called_once_with("2027-01-05", "Rest day", "easy")
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"date": "2027-13-01", "name": "x"}, {"date": "2027-01-05", "name": "  "}]
+)
+def test_create_note_rejects_invalid_input(client, tools, kwargs):
+    out = _text(tools("create_calendar_note", **kwargs))
+    assert out.startswith("Error:")
+    client.create_calendar_note.assert_not_called()
+
+
+def test_create_note_failure_reports_write_state(client, tools):
+    client.create_calendar_note.side_effect = RuntimeError("boom")
+    out = json.loads(_text(tools("create_calendar_note", date="2027-01-05", name="x")))
+    assert out["write_committed"] == "unknown"
+
+
+def test_update_note_replaces_all_fields(client, tools):
+    client.update_calendar_note.return_value = None
+    out = json.loads(
+        _text(tools("update_calendar_note", note_id=9, date="2027-01-06", name="New", content=""))
+    )
+    client.update_calendar_note.assert_called_once_with(9, "2027-01-06", "New", "")
+    assert out["status"] == "updated"
+    assert out["note"] == {"id": 9, "noteName": "New", "content": "", "date": "2027-01-06"}
+
+
+def test_update_note_rejects_bad_id(client, tools):
+    out = _text(tools("update_calendar_note", note_id=0, date="2027-01-06", name="x"))
+    assert out.startswith("Error:") and "note_id" in out
+    client.update_calendar_note.assert_not_called()
+
+
+def test_delete_note(client, tools):
+    out = json.loads(_text(tools("delete_calendar_note", note_id=9)))
+    assert out["status"] == "deleted"
+    client.delete_calendar_note.assert_called_once_with(9)
+
+
+def test_delete_note_5xx_is_unknown_commit_state(client, tools):
+    from garminconnect import GarminConnectConnectionError
+
+    client.delete_calendar_note.side_effect = GarminConnectConnectionError("API Error 502 - x")
+    out = json.loads(_text(tools("delete_calendar_note", note_id=9)))
+    assert out["write_committed"] == "unknown"
+
+
+def test_get_calendar_notes_filters_and_sorts(client, tools):
+    client.get_scheduled_workouts.return_value = {
+        "calendarItems": [
+            {"id": 2, "itemType": "note", "title": "B", "date": "2027-06-18"},
+            {"id": 1, "itemType": "note", "title": "A", "date": "2027-06-17"},
+            {"id": 3, "itemType": "event", "title": "Race", "date": "2027-06-17"},
+            {"id": 4, "itemType": "note", "title": "Out of range", "date": "2027-06-30"},
+            {"id": 1, "itemType": "note", "title": "A", "date": "2027-06-17"},
+        ]
+    }
+    out = json.loads(
+        _text(tools("get_calendar_notes", start_date="2027-06-01", end_date="2027-06-20"))
+    )
+    assert out["count"] == 2
+    assert [n["note_id"] for n in out["notes"]] == [1, 2]
+
+
+def test_get_calendar_notes_rejects_reversed_range(client, tools):
+    out = _text(tools("get_calendar_notes", start_date="2027-06-20", end_date="2027-06-01"))
+    assert "on or before" in out
