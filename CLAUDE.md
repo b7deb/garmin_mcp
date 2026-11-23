@@ -172,9 +172,16 @@ This saves OAuth tokens to `~/.garminconnect` so the MCP server can start withou
 
 #### Tools that write to Garmin
 
+The example in step 3 is the plain *read* pattern. Tools that write follow the pattern below instead.
+
 A tool that creates, changes or deletes data must not retry on its own and must tell the caller whether the write may have landed. Use `WriteTracker` from [write_errors.py](src/garmin_mcp/write_errors.py), validate input *before* `tracker.sending()`, and make destructive tools preview first:
 
 ```python
+import json
+
+from garmin_mcp.write_errors import WriteTracker
+
+
 @app.tool()
 async def update_thing(thing_id: int, name: str) -> str:
     """What it changes, whether repeating the call is safe, how to get thing_id
@@ -200,22 +207,22 @@ async def update_thing(thing_id: int, name: str) -> str:
 ```
 
 - Reads that precede the write (for example fetching the current object to merge into it) go before `tracker.sending()`.
-- Destructive tools (deletes) take `confirm: bool = False` and return a `needs_confirmation` preview unless `confirm=true`; see `delete_activity` and `delete_calendar_event`.
+- New tools that delete something irreplaceable (activities, events, courses) take `confirm: bool = False` and return a `needs_confirmation` preview unless `confirm=true`. See `delete_calendar_event`, which combines this with `WriteTracker`; `delete_activity` has the same confirm gate but returns plain error strings. Cheap, easily recreated deletes such as `delete_calendar_note` skip the gate.
 - Prefer the `garminconnect` method over a raw `connectapi` call when one exists; fall back to `garmin_client.client.put/post/delete("connectapi", url, json=..., api=True)` otherwise.
 - Verify the tool once against a real account with self-cleaning test data (create, change, delete) before opening the PR.
 
 #### Checklist: every new tool
 
-- [ ] **Annotations** - add the tool name to exactly one of `READ_ONLY_TOOLS`, `ADDITIVE_TOOLS` or `DESTRUCTIVE_TOOLS` in [tool_annotations.py](src/garmin_mcp/tool_annotations.py). Add it to `IDEMPOTENT_TOOLS` only if repeating the same call is safe. `test_annotation_registry_is_exhaustive_and_disjoint` fails otherwise.
+- [ ] **Annotations** - add the tool name to exactly one of `READ_ONLY_TOOLS` (no side effects), `ADDITIVE_TOOLS` (creates something new) or `DESTRUCTIVE_TOOLS` (changes, overwrites or deletes existing data, including every `set_*`/`update_*` tool and file downloads that can overwrite) in [tool_annotations.py](src/garmin_mcp/tool_annotations.py). For a write tool, also add it to `IDEMPOTENT_TOOLS` if repeating the same call is safe, and to `LOCAL_ONLY_TOOLS` if it never contacts Garmin. `test_annotation_registry_is_exhaustive_and_disjoint` fails when the three sets miss a tool or overlap, but it cannot tell you picked the wrong category.
 - [ ] **Tool count** - bump the hard-coded `len(names) == N` in `tests/unit/test_tool_annotations.py`.
-- [ ] **Profiles** - add the tool to the matching profile(s) in [tool_profiles.py](src/garmin_mcp/tool_profiles.py). A tool that is in no profile is only available with the `all` profile, which is allowed but usually not intended. A test checks that every name in a profile is a registered tool.
+- [ ] **Profiles** - add the tool to the matching profile(s) in [tool_profiles.py](src/garmin_mcp/tool_profiles.py). A tool that is in no profile is dropped whenever a profile other than `all` is selected, unless the user allowlists it in `GARMIN_ENABLED_TOOLS`; that is allowed but usually not intended. A test checks that every name in a profile is a registered tool.
 - [ ] **dxt bundle** - regenerate the manifest tool list and the bundle, then commit both `dxt/manifest.json` and `garmin-mcp.dxt`:
   ```bash
   uv run bash scripts/build_dxt.sh
   ```
-  `test_tools_list_matches_registered_tools` and `test_bundled_manifest_matches_source_manifest` fail if either is stale.
-- [ ] **Counts in docs** - update the tool counts that no test checks: "registers N tools" and the per-profile table in [README.md](README.md), the count in the [tool_profiles.py](src/garmin_mcp/tool_profiles.py) docstring, and the tool/test counts in this file.
-- [ ] **New module only** - call `configure()` and `register_tools()` for it in [__init__.py](src/garmin_mcp/__init__.py) and add it to `MODULES` in `scripts/generate_dxt_tools.py`.
+  `test_tools_list_matches_registered_tools` and `test_bundled_manifest_matches_source_manifest` fail if either is stale. The manifest also carries each tool's first docstring line, so rebuild after changing that line on an existing tool too. The `.dxt` is a zip, so its bytes differ on every rebuild even when the manifest is unchanged; commit it only when `dxt/manifest.json` changed.
+- [ ] **Counts in docs** - update the tool counts that no test checks: "registers N tools" and the per-profile table in [README.md](README.md), the count in the [tool_profiles.py](src/garmin_mcp/tool_profiles.py) docstring, the "Tool Coverage" section in the README (per-module counts and a line per module; it is currently out of date), and the tool/test counts in this file.
+- [ ] **New module only** - in [__init__.py](src/garmin_mcp/__init__.py) add the `from garmin_mcp import <module>` import and the `configure()` and `register_tools()` calls, and in `scripts/generate_dxt_tools.py` add the import and an entry in `MODULES`. No test checks that the two lists agree: every coverage test iterates `MODULES`, so a module missing there is silently skipped and the only signal is a runtime warning about unannotated tools. Also add a `tests/integration/test_<module>_tools.py`, a line in the project tree and the module count at the top of this file, and a module line in the README.
 - [ ] **Tests and checks** - run `uv run pytest tests/unit tests/integration -q`; for write tools also do the live check described above.
 
 ### Error Handling
